@@ -1,4 +1,4 @@
-# JSON Schema Test Harness
+# JSON Schema Annotation Test Harness
 
 This repository contains a test harness for running tests from the official JSON Schema Test Suite in Node.js.
 
