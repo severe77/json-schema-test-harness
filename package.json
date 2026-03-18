@@ -11,6 +11,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@hyperjump/browser": "1.3.1",
+    "@hyperjump/json-schema": "1.17.5",
     "ajv": "^8.17.1"
   }
 }
