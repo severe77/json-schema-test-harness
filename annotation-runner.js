@@ -1,137 +1,150 @@
-const fs = require("fs");
-const path = require("path");
-const Ajv2020 = require("ajv/dist/2020");
+const fs = require("fs")
+const path = require("path")
+const Ajv2020 = require("ajv/dist/2020")
 
-const testsRoot = path.join(__dirname, "JSON-Schema-Test-Suite", "annotations", "tests");
+const root = path.join(__dirname, "JSON-Schema-Test-Suite", "annotations", "tests")
 
+const fileArg = process.argv[2]
+const isQuiet = process.argv.includes("--quiet")
 
-const onlyFile = process.argv[2];
-
-let stats = {
-  filesRead: 0,
-  testCases: 0,
-  testsRun: 0,
-  valid: 0,
-  invalid: 0,
+let summary = {
+  files: 0,
+  cases: 0,
+  tests: 0,
+  pass: 0,
+  fail: 0,
   compileErrors: 0,
   runtimeErrors: 0,
-};
+}
 
-function createAjv() {
+function print(msg) {
+  if (!isQuiet) console.log(msg)
+}
+
+function makeAjv() {
   return new Ajv2020({
     strict: false,
     allErrors: true,
     validateSchema: false,
-    messages: true,
-  });
+  })
 }
 
-function loadJSON(filePath) {
+function read(filePath) {
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch (err) {
-    console.log("READ ERROR:", err.message);
-    return null;
+    return JSON.parse(fs.readFileSync(filePath, "utf8"))
+  } catch (e) {
+    console.log("read error:", e.message)
+    return null
   }
 }
 
-function registerExternalSchemas(ajv, externalSchemas) {
-  if (!externalSchemas || typeof externalSchemas !== "object") return;
-
-  for (const [uri, schema] of Object.entries(externalSchemas)) {
+function addExternal(ajv, ext) {
+  if (!ext || typeof ext !== "object") return
+  for (const [uri, schema] of Object.entries(ext)) {
     try {
-      ajv.addSchema(schema, uri);
-    } catch (_) {
-     
-    }
+      ajv.addSchema(schema, uri)
+    } catch {}
   }
 }
 
-function runTest(validate, test, fallbackDescription) {
-  stats.testsRun++;
+function runSingleTest(validate, test, fallback, fileStats) {
+  summary.tests++
+  fileStats.total++
 
-  const description =
-    test.description || fallbackDescription || "(no description)";
+  const desc = test.description || fallback || "no description"
 
-  let result;
+  let result
   try {
-    result = validate(test.instance);
-  } catch (err) {
-    stats.runtimeErrors++;
-    console.log(`RUNTIME ERROR | ${description}`);
-    console.log("  ", err.message);
-    return;
+    result = validate(test.instance)
+  } catch (e) {
+    summary.runtimeErrors++
+    fileStats.runtimeErrors++
+    print(`runtime error | ${desc}`)
+    return
   }
 
-  if (result) {
-    stats.valid++;
-    console.log(`VALID   | ${description}`);
+  const expected = test.valid
+
+  if (result === expected) {
+    summary.pass++
+    fileStats.pass++
+    print(`pass | ${desc}`)
   } else {
-    stats.invalid++;
-    console.log(`INVALID | ${description}`);
+    summary.fail++
+    fileStats.fail++
+    print(`fail | ${desc}`)
   }
 }
 
-function runTestCase(testCase) {
-  stats.testCases++;
+function runCase(testCase, fileStats) {
+  summary.cases++
 
-  const ajv = createAjv();
-  registerExternalSchemas(ajv, testCase.externalSchemas);
+  const ajv = makeAjv()
+  addExternal(ajv, testCase.externalSchemas)
 
-  let validate;
+  let validate
   try {
-    validate = ajv.compile(testCase.schema);
-  } catch (err) {
-    stats.compileErrors++;
-    const desc = testCase.description || "(no description)";
-    console.log(`COMPILE ERROR: ${desc}`);
-    console.log("  ", err.message);
-    return;
+    validate = ajv.compile(testCase.schema)
+  } catch (e) {
+    summary.compileErrors++
+    fileStats.compileErrors++
+    const desc = testCase.description || "no description"
+    print(`compile error | ${desc}`)
+    return
   }
 
-  const tests = Array.isArray(testCase.tests) ? testCase.tests : [];
+  const tests = Array.isArray(testCase.tests) ? testCase.tests : []
 
-  for (const test of tests) {
-    runTest(validate, test, testCase.description);
+  for (const t of tests) {
+    runSingleTest(validate, t, testCase.description, fileStats)
   }
 }
 
 function runFile(file) {
-  if (onlyFile && file !== onlyFile) return;
+  if (fileArg && file !== fileArg) return
 
-  const filePath = path.join(testsRoot, file);
-  const label = `annotations/tests/${file}`;
+  const fullPath = path.join(root, file)
+  const name = `annotations/${file}`
 
-  stats.filesRead++;
-  console.log(`\n=== ${label} ===`);
+  summary.files++
 
-  const parsed = loadJSON(filePath);
-  if (!parsed) return;
+  const fileStats = {
+    total: 0,
+    pass: 0,
+    fail: 0,
+    compileErrors: 0,
+    runtimeErrors: 0,
+  }
 
-  const suite = Array.isArray(parsed.suite) ? parsed.suite : [];
+  console.log(`\n--- ${name} ---`)
+
+  const data = read(fullPath)
+  if (!data) return
+
+  const suite = Array.isArray(data.suite) ? data.suite : []
 
   for (const testCase of suite) {
-    runTestCase(testCase);
+    runCase(testCase, fileStats)
   }
+
+  console.log(
+    `result: ${fileStats.pass}/${fileStats.total} passed | fail: ${fileStats.fail}`
+  )
 }
 
+console.log("running annotation tests...\n")
 
+const files = fs.readdirSync(root).filter((f) => f.endsWith(".json"))
 
-console.log("Running annotation test harness...\n");
-
-const files = fs
-  .readdirSync(testsRoot)
-  .filter((name) => name.endsWith(".json"));
-
-for (const file of files) {
-  runFile(file);
+for (const f of files) {
+  runFile(f)
 }
 
-console.log("\nSummary");
-console.log("Files read:", stats.filesRead);
-console.log("Test cases:", stats.testCases);
-console.log("Tests run:", stats.testsRun);
-console.log("Valid:", stats.valid);
-console.log("Invalid:", stats.invalid);
-console.log("Compile errors:", stats.compileErrors);
-console.log("Runtime errors:", stats.runtimeErrors);
+console.log("\nfinal result")
+console.log("files:", summary.files)
+console.log("cases:", summary.cases)
+console.log("tests:", summary.tests)
+console.log("pass:", summary.pass)
+console.log("fail:", summary.fail)
+console.log("compile errors:", summary.compileErrors)
+console.log("runtime errors:", summary.runtimeErrors)
